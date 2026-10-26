@@ -1,6 +1,6 @@
 /* Service worker : garde l'app, les polices et les images d'exercices pour le hors-ligne.
    Changer VERSION à chaque mise à jour de l'app. */
-var VERSION = "2026-10-26.2";
+var VERSION = "2026-10-26.3";
 var SHELL = "cs-shell-" + VERSION;
 var IMG = "cs-img-v1";
 var FONTS = "cs-fonts-v1";

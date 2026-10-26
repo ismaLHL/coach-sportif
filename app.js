@@ -20,7 +20,7 @@ var S = {
   meta: load(META_KEY, {}),
   sid: null, view: "overview", timer: null,
   syncing: false, sync: { txt:"", cls:"" },
-  copyText: null, pendingRender: false, flash: null
+  copyText: null, pendingRender: false, flash: null, noteOpen: null
 };
 
 var $ = function(s){ return document.querySelector(s); };
@@ -46,11 +46,13 @@ function exId(ex, i){ return String(ex.id || ("e"+i)); }
 function nSets(ex){ return Math.max(1, Number(ex.sets) || (Array.isArray(ex.targets) ? ex.targets.length : 1)); }
 function tgt(ex, j){ return (Array.isArray(ex.targets) && ex.targets[j]) || ex.target || {}; }
 function isTimed(ex){ if (ex.mode) return ex.mode === "time"; var t = tgt(ex,0); return t.time != null && t.reps == null; }
-function newResult(sid){ return { sessionId:sid, status:"prévue", startedAt:null, finishedAt:null, durationMin:null, sets:{}, feeling:null, pain:"", notes:"", updatedAt:"" }; }
+function newResult(sid){ return { sessionId:sid, status:"prévue", startedAt:null, finishedAt:null, durationMin:null, sets:{}, exNotes:{}, feeling:null, pain:"", notes:"", updatedAt:"" }; }
 function result(){ if (!S.sid) return null; var r = S.results[S.sid]; if (!r){ r = S.results[S.sid] = { sha:null, data:newResult(S.sid), dirty:false }; } if (!r.data.sets) r.data.sets = {}; return r.data; }
 function getSet(i, j){ var ex = exercises()[i]; var a = result().sets[exId(ex,i)]; return (a && a[j]) || {}; }
 function patchSet(i, j, patch){ var ex = exercises()[i], id = exId(ex,i), R = result(); var a = R.sets[id] || (R.sets[id] = []);
   while (a.length <= j) a.push({}); var cur = a[j] || {}; for (var k in patch) cur[k] = patch[k]; a[j] = cur; }
+function exNote(i){ var ex = exercises()[i], R = result(); return (R.exNotes && R.exNotes[exId(ex,i)]) || ""; }
+function setExNote(i, v){ var ex = exercises()[i], R = result(); if (!R.exNotes) R.exNotes = {}; var id = exId(ex,i); if (v) R.exNotes[id] = v; else delete R.exNotes[id]; }
 function doneCount(i){ var ex = exercises()[i], c = 0; for (var j=0;j<nSets(ex);j++) if (getSet(i,j).done) c++; return c; }
 function weightTxt(w, ex){ if (w == null || w === "") return (ex && ex.equip) ? "" : "PDC"; return String(w).replace(".",",") + " kg"; }
 function setTxt(s, ex){ if (!s) return "";
@@ -237,7 +239,7 @@ function viewOverview(){
   if (s.warmup) h += '<div class="note"><b>Échauffement</b>' + esc(s.warmup) + '</div>';
   h += '<ul class="plan">';
   ex.forEach(function(e, i){ var t = targetSummary(e), d = doneCount(i), n = nSets(e);
-    h += '<li><button data-act="goto" data-i="' + i + '"><span class="nm">' + esc(e.name || "Exercice") + '</span><span class="dt num">' + esc(t.v) + ' · ' + esc(t.s) + '</span><span class="st num' + (d === n ? ' ok' : '') + '">' + d + '/' + n + '</span></button></li>'; });
+    h += '<li><button data-act="goto" data-i="' + i + '"><span class="nm">' + esc(e.name || "Exercice") + '</span><span class="dt num">' + esc(t.v) + ' · ' + esc(t.s) + (exNote(i) ? ' · ✎ note' : '') + '</span><span class="st num' + (d === n ? ' ok' : '') + '">' + d + '/' + n + '</span></button></li>'; });
   h += '</ul>';
   if (r.status === "terminée") h += '<div class="ok-box"><b>Séance terminée.</b> ' + (S.results[S.sid].dirty ? "Tes résultats partiront à la prochaine connexion." : "Tes résultats sont envoyés.") + '</div>';
   var label = r.status === "terminée" ? "Revoir le bilan" : (r.startedAt ? "Reprendre la séance" : "Commencer la séance");
@@ -292,6 +294,9 @@ function viewExercise(i){
       h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
   }
   h += '</div>';
+  var xn = exNote(i);
+  if (xn || S.noteOpen === i) h += '<div class="stack"><label class="lb" for="xn-' + i + '">Ma note sur cet exercice</label><textarea id="xn-' + i + '" data-xn="' + i + '" placeholder="Variante faite, élastique utilisé, prise, sensation…">' + esc(xn) + '</textarea></div>';
+  else h += '<button class="btn block" data-act="xnote" data-i="' + i + '">+ Ajouter une note (variante, élastique…)</button>';
   if (ex.note) h += '<div class="note"><b>Conseil du coach</b>' + esc(ex.note) + '</div>';
   var last = i === exercises().length - 1;
   h += '<div class="nav"><button class="btn" data-act="goto" data-i="' + (i === 0 ? 'overview' : i-1) + '">' + (i === 0 ? 'Plan' : 'Précédent') + '</button><button class="btn primary" data-act="goto" data-i="' + (last ? 'end' : i+1) + '">' + (last ? 'Bilan de séance' : 'Exercice suivant') + '</button></div>';
@@ -320,7 +325,7 @@ function viewEnd(){
 function summaryText(){
   var s = session(), r = result(), lines = ["Séance du " + dateFr(s.date) + " — " + (s.title || "")];
   exercises().forEach(function(e, i){ var parts = []; for (var j=0;j<nSets(e);j++){ var x = getSet(i,j); if (x.done) parts.push(setTxt(x, e)); }
-    lines.push((e.name || "Exercice") + " : " + (parts.length ? parts.join(", ") : "non fait")); });
+    var xn = exNote(i); lines.push((e.name || "Exercice") + " : " + (parts.length ? parts.join(", ") : "non fait") + (xn ? " (note : " + xn + ")" : "")); });
   if (r.feeling) lines.push("Ressenti : " + r.feeling + "/10");
   if (r.pain) lines.push("Douleurs : " + r.pain);
   if (r.notes) lines.push("Notes : " + r.notes);
@@ -385,7 +390,7 @@ function tickChrono(){ var r = S.sid && S.results[S.sid] && S.results[S.sid].dat
 setInterval(tick, 250);
 
 /* ---------- Événements ---------- */
-function goto(v){ S.copyText = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = Number(v); render(); window.scrollTo(0, 0); }
+function goto(v){ S.copyText = null; S.noteOpen = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = Number(v); render(); window.scrollTo(0, 0); }
 
 document.addEventListener("click", function(ev){
   var b = ev.target.closest("[data-act]"); if (!b) return; var act = b.getAttribute("data-act");
@@ -396,6 +401,7 @@ document.addEventListener("click", function(ev){
   else if (act === "sync-now"){ S.meta.lastError = null; sync().then(render); }
   else if (act === "start"){ if (result().status === "terminée") goto("end"); else { begin(); var first = 0; exercises().some(function(e, k){ if (doneCount(k) < nSets(e)){ first = k; return true; } }); goto(first); } }
   else if (act === "check") checkSet(i, j, false);
+  else if (act === "xnote"){ S.noteOpen = i; render(); var ta = document.getElementById("xn-" + i); if (ta) ta.focus(); }
   else if (act === "work"){ begin(); var ex = exercises()[i], tg = tgt(ex, j);
     if (tg.time) startTimer({ kind:"work", total:Number(tg.time), label:ex.name + " · série " + (j+1), next:"Effort en cours", i:i, j:j });
     else startTimer({ kind:"stopwatch", total:0, label:ex.name + " · série " + (j+1), next:"Arrête quand tu lâches", i:i, j:j }); }
@@ -414,6 +420,7 @@ document.addEventListener("click", function(ev){
 document.addEventListener("change", function(ev){ if (ev.target.id === "pick"){ S.sid = ev.target.value; S.view = "overview"; render(); } });
 app.addEventListener("input", function(ev){ var t = ev.target;
   if (t.hasAttribute("data-k")){ var p = {}; p[t.getAttribute("data-k")] = num(t.value); patchSet(num(t.getAttribute("data-i")), num(t.getAttribute("data-j")), p); markDirty(); }
+  else if (t.hasAttribute("data-xn")){ setExNote(num(t.getAttribute("data-xn")), t.value); markDirty(); }
   else if (t.hasAttribute("data-f")){ result()[t.getAttribute("data-f")] = t.value; markDirty(); } });
 app.addEventListener("submit", function(ev){ if (ev.target.id !== "cfgform") return; ev.preventDefault();
   var g = function(id){ var el = document.getElementById(id); return el ? el.value.trim() : null; };
