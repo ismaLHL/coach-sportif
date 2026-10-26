@@ -96,7 +96,9 @@ function sync(){
   if (!S.cfg.token || !navigator.onLine){ idleSyncLabel(); return Promise.resolve(); }
   S.syncing = true; setSync("Synchronisation…", "");
   var changed = false;
-  return gh("contents/sessions" + refQ(), { allow404:true }).then(function(list){
+  return gh("contents/" + refQ(), { allow404:true }).then(function(root){
+    if (root === null){ var e = new Error("no access"); e.status = 404; throw e; }
+    return gh("contents/sessions" + refQ(), { allow404:true }); }).then(function(list){
     list = Array.isArray(list) ? list : [];
     var seen = {}, jobs = [];
     list.forEach(function(f){ if (f.type !== "file" || !/\.json$/.test(f.name)) return; var id = f.name.slice(0, -5); seen[id] = 1;
@@ -124,7 +126,7 @@ function sync(){
     if (changed) render(); precacheImages(); })
   .catch(function(e){ S.syncing = false;
     if (e && (e.status === 401 || e.status === 403)) setSync("Clé refusée", "err");
-    else if (e && e.status === 404) setSync("Dépôt introuvable", "err");
+    else if (e && e.status === 404) setSync("Dépôt inaccessible", "err");
     else idleSyncLabel();
     S.meta.lastError = e && e.status ? String(e.status) : "réseau"; save(META_KEY, S.meta);
     if (S.view === "settings") render(); }); }
@@ -213,7 +215,7 @@ function viewSettings(){
     '<dt>Résultats à envoyer</dt><dd class="num">' + p + '</dd>' +
     '<dt>Images hors ligne</dt><dd class="num">' + (im ? im.ok + " / " + im.n : "—") + '</dd>' +
     '<dt>Réseau</dt><dd>' + (navigator.onLine ? "connecté" : "hors ligne") + '</dd></dl>';
-  if (S.sync.cls === "err") h += '<div class="err-box"><b>' + esc(S.sync.txt) + '.</b> ' + (S.sync.txt === "Clé refusée" ? "La clé a peut-être expiré ou n'a pas la permission Contents en lecture et écriture. Crée-en une nouvelle." : "Vérifie le compte et le nom du dépôt.") + '</div>';
+  if (S.sync.cls === "err") h += '<div class="err-box"><b>' + esc(S.sync.txt) + '.</b> ' + (S.sync.txt === "Clé refusée" ? "La clé a peut-être expiré. Crée-en une nouvelle." : "Vérifie que la clé donne accès à ce dépôt avec la permission Contents en lecture et écriture, puis que le compte et le nom du dépôt sont justes.") + '</div>';
   h += '<button class="btn primary block" data-act="sync-now">Synchroniser maintenant</button>';
   h += '<p class="hint">Avant d\'aller à la salle sans réseau, ouvre l\'app une fois connecté : les séances à venir et leurs images sont gardées sur le téléphone.</p>';
   h += tokenForm(false);
