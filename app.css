@@ -72,7 +72,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--su
 .chip.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 .chip.ok:not(.on){border-color:var(--good);color:var(--good)}
 
-.visual{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.visual{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
 .visual canvas{display:block;width:100%;aspect-ratio:16/9;max-width:100%}
 .frames{position:relative;aspect-ratio:3/2;background:#fff;max-width:100%}
 .frames img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
@@ -149,3 +149,18 @@ label.lb,.lb{font-weight:700;font-size:14px}
 @keyframes fl{50%{filter:brightness(1.25)}}
 @media (prefers-reduced-motion: reduce){.sheet.flash{animation:none}}
 @media (max-width:380px){h1{font-size:34px}.sh-time{font-size:64px}.set,.sets-h{grid-template-columns:24px 1fr 1fr 50px}.set.go5,.sets-h.go5{grid-template-columns:24px 1fr 1fr 46px 46px}}
+
+/* Super-séries : visuels côte à côte, séries dans l'ordre d'exécution */
+.vgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.vgrid .cap{flex-direction:column;align-items:flex-start;gap:2px;padding:6px 10px;font-size:12px}
+.vgrid .cap span{font-weight:700;color:var(--fg)}
+.vtag{position:absolute;top:6px;left:6px;z-index:2;background:var(--accent);color:var(--accent-ink);font-family:var(--f-body,inherit);font-size:12px;font-weight:700;letter-spacing:.04em;border-radius:999px;padding:2px 9px}
+.vtag.in{position:static;display:inline-block;vertical-align:middle;font-size:14px;margin-right:4px}
+h1 .plus{color:var(--muted)}
+.set-lb{font-size:13px;color:var(--muted);padding:6px 4px 0}
+.set-lb b{color:var(--accent);margin-right:4px}
+.set-lb.done{color:var(--good)}
+.set-lb.done b{color:var(--good)}
+.ssd{display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--line);padding-top:18px}
+.ssd h2{font-size:24px}
+.plan li.ss .nm{color:var(--fg)}

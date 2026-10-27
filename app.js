@@ -84,6 +84,21 @@ function prevSummary(ex){ var p = ex.prev; if (!p) return null;
 function imagesOf(ex){ if (Array.isArray(ex.images) && ex.images.length) return ex.images.filter(function(u){ return /^https:\/\//.test(u); }).slice(0,2);
   if (ex.img && /^[A-Za-z0-9_\-().,]+$/.test(ex.img)) return [IMG_BASE + ex.img + "/0.jpg", IMG_BASE + ex.img + "/1.jpg"]; return []; }
 
+/* ---------- Super-séries ----------
+   Exercices consécutifs avec la même valeur `superset` (ex. "A") : une seule page,
+   séries listées dans l'ordre d'exécution (A1 s1, A2 s1, A1 s2…). */
+function ssKey(ex){ return ex && ex.superset != null && ex.superset !== "" ? String(ex.superset) : null; }
+function groupOf(i){ var ex = exercises(), k = ssKey(ex[i]); if (!k) return [i]; var a = i, b = i;
+  while (a > 0 && ssKey(ex[a-1]) === k) a--; while (b < ex.length - 1 && ssKey(ex[b+1]) === k) b++;
+  var g = []; for (var x=a; x<=b; x++) g.push(x); return g; }
+function pageStart(i){ return groupOf(i)[0]; }
+function pageStarts(){ var out = [], n = exercises().length, i = 0; while (i < n){ var g = groupOf(i); out.push(g[0]); i = g[g.length-1] + 1; } return out; }
+function ssLabel(i){ var g = groupOf(i); return g.length > 1 ? ssKey(exercises()[i]) + (g.indexOf(i) + 1) : ""; }
+function dispName(i){ var l = ssLabel(i), e = exercises()[i] || {}; return (l ? l + " · " : "") + (e.name || "Exercice"); }
+function seqOf(g){ var seq = [], max = 0; g.forEach(function(i){ max = Math.max(max, nSets(exercises()[i])); });
+  for (var r=0; r<max; r++) g.forEach(function(i){ if (r < nSets(exercises()[i])) seq.push([i, r]); }); return seq; }
+function groupDone(g){ return g.every(function(i){ return doneCount(i) === nSets(exercises()[i]); }); }
+
 /* ---------- GitHub ---------- */
 function gh(path, opt){ opt = opt || {}; var c = S.cfg;
   var headers = { "Authorization":"Bearer " + c.token, "X-GitHub-Api-Version":"2022-11-28", "Accept": opt.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json" };
@@ -253,7 +268,7 @@ function viewOverview(){
   if (s.warmup) h += '<div class="note"><b>Échauffement</b>' + esc(s.warmup) + '</div>';
   h += '<ul class="plan">';
   ex.forEach(function(e, i){ var t = targetSummary(e), d = doneCount(i), n = nSets(e);
-    h += '<li><button data-act="goto" data-i="' + i + '"><span class="nm">' + esc(e.name || "Exercice") + '</span><span class="dt num">' + esc(t.v) + ' · ' + esc(t.s) + (exNote(i) ? ' · ✎ note' : '') + '</span><span class="st num' + (d === n ? ' ok' : '') + '">' + d + '/' + n + '</span></button></li>'; });
+    h += '<li' + (ssLabel(i) ? ' class="ss"' : '') + '><button data-act="goto" data-i="' + i + '"><span class="nm">' + esc(dispName(i)) + '</span><span class="dt num">' + esc(t.v) + ' · ' + esc(t.s) + (exNote(i) ? ' · ✎ note' : '') + '</span><span class="st num' + (d === n ? ' ok' : '') + '">' + d + '/' + n + '</span></button></li>'; });
   h += '</ul>';
   if (r.status === "terminée") h += '<div class="ok-box"><b>Séance terminée.</b> ' + (S.results[S.sid].dirty ? "Tes résultats partiront à la prochaine connexion." : "Tes résultats sont envoyés.") + '</div>';
   var label = r.status === "terminée" ? "Revoir le bilan" : (r.startedAt ? "Reprendre la séance" : "Commencer la séance");
@@ -270,60 +285,96 @@ function viewOverview(){
 
 function chipsRow(cur){
   var h = '<div class="chips">';
-  exercises().forEach(function(e, i){ var ok = doneCount(i) === nSets(e);
-    h += '<button class="chip' + (i === cur ? ' on' : '') + (ok ? ' ok' : '') + '" data-act="goto" data-i="' + i + '">' + (i+1) + '. ' + esc(e.name || "Exercice") + '</button>'; });
+  pageStarts().forEach(function(i, k){ var g = groupOf(i), ok = groupDone(g);
+    var nm = g.length > 1 ? ssKey(exercises()[i]) + ' · ' + g.map(function(x){ return exercises()[x].name || "Exercice"; }).join(" + ") : (exercises()[i].name || "Exercice");
+    h += '<button class="chip' + (i === cur ? ' on' : '') + (ok ? ' ok' : '') + '" data-act="goto" data-i="' + i + '">' + (k+1) + '. ' + esc(nm) + '</button>'; });
   h += '<button class="chip' + (cur === "end" ? ' on' : '') + '" data-act="goto" data-i="end">Bilan</button></div>';
   return h;
 }
 
-function viewExercise(i){
-  var ex = exercises()[i]; if (!ex){ S.view = "overview"; return viewOverview(); }
-  var timed = isTimed(ex), n = nSets(ex), t = targetSummary(ex), p = prevSummary(ex), imgs = imagesOf(ex);
-  var h = chipsRow(i);
-  h += '<div class="stack"><div class="eyebrow num">Exercice ' + (i+1) + ' / ' + exercises().length + (ex.tempo ? ' · tempo ' + esc(ex.tempo) : '') + '</div><h1>' + esc(ex.name || "Exercice") + '</h1></div>';
+function visualHtml(ex, i, tag){
+  var imgs = imagesOf(ex);
   var demo = ex.videoUrl && /^https:\/\//.test(ex.videoUrl) ? ex.videoUrl : "https://www.youtube.com/results?search_query=" + encodeURIComponent((ex.name || "") + " exercice technique");
-  h += '<div class="visual">';
-  if (imgs.length) h += '<div class="frames' + (imgs.length > 1 ? ' anim' : '') + '" id="frames">' + imgs.map(function(u, k){ return '<img src="' + esc(u) + '" alt="' + (k ? "Position d'arrivée" : "Position de départ") + '" data-fallback>'; }).join("") + '</div>';
-  h += '<canvas id="fig" role="img" aria-label="Animation du mouvement"' + (imgs.length ? ' hidden' : '') + '></canvas>';
-  h += '<div class="cap"><span>' + esc(ex.visualNote || (imgs.length ? "Départ et arrivée, en alternance" : "Mouvement de profil, en boucle")) + '</span><a href="' + esc(demo) + '" target="_blank" rel="noopener">Voir une démo</a></div></div>';
-  if (Array.isArray(ex.cues) && ex.cues.length) h += '<ul class="cues">' + ex.cues.map(function(c){ return '<li>' + esc(c) + '</li>'; }).join("") + '</ul>';
-  h += '<div class="cmp"><div><div class="eyebrow">Dernière fois</div>' + (p ? '<div class="v">' + esc(p.v) + '</div><div class="s">' + esc(p.s) + (p.note ? ' · ' + esc(p.note) : '') + '</div>' : '<div class="v">—</div><div class="s">Première fois</div>') + '</div>';
-  h += '<div class="goal"><div class="eyebrow">Objectif</div><div class="v">' + esc(t.v) + '</div><div class="s">' + esc(t.s) + '</div></div></div>';
-
-  h += '<div class="sets">';
-  var j, tg, r;
-  if (timed){
-    h += '<div class="sets-h timed"><span>#</span><span>Temps</span><span></span><span></span></div>';
-    for (j=0;j<n;j++){ tg = tgt(ex,j); r = getSet(i,j);
-      h += '<div class="set timed' + (r.done ? ' done' : '') + '"><span class="sn num">' + (j+1) + '</span>';
-      h += '<label class="fld"><input id="in-' + i + '-' + j + '-time" data-k="time" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.time != null ? r.time : "") + '" placeholder="' + esc(isMax(ex, tg) ? "max" : (tg.time != null ? tg.time : "")) + '" aria-label="Série ' + (j+1) + ', secondes"><span>s</span></label>';
-      h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="' + (isMax(ex, tg) ? "Lancer le chrono libre" : "Lancer le minuteur") + ' de la série ' + (j+1) + '">▶</button>';
-      h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
-  } else {
-    var goR = isRepsInTime(ex, tgt(ex,0)), gc = goR ? ' go5' : '';
-    h += '<div class="sets-h' + gc + '"><span>#</span><span>' + (isPerSide(ex) ? 'Reps / côté' : 'Reps') + '</span><span>' + (isBand(ex) ? 'Élastique' : 'Charge') + '</span>' + (goR ? '<span></span>' : '') + '<span></span></div>';
-    for (j=0;j<n;j++){ tg = tgt(ex,j); r = getSet(i,j);
-      var ask = S.askReps && S.askReps.i === i && S.askReps.j === j;
-      h += '<div class="set' + gc + (r.done ? ' done' : '') + (ask ? ' ask' : '') + '"><span class="sn num">' + (j+1) + '</span>';
-      h += '<label class="fld"><input id="in-' + i + '-' + j + '-reps" data-k="reps" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.reps != null ? r.reps : "") + '" placeholder="' + esc(tg.reps != null ? tg.reps : "") + '" aria-label="Série ' + (j+1) + ', répétitions"></label>';
-      if (isBand(ex)){ var bv = r.band != null ? r.band : (tg.band || "");
-        h += '<label class="fld band"><select id="in-' + i + '-' + j + '-band" data-k="band" data-i="' + i + '" data-j="' + j + '" aria-label="Série ' + (j+1) + ', élastique utilisé"><option value=""' + (bv ? '' : ' selected') + '>—</option>' + BANDS.map(function(b){ return '<option' + (b === bv ? ' selected' : '') + '>' + b + '</option>'; }).join("") + '</select><span aria-hidden="true">▾</span></label>'; }
-      else h += '<label class="fld"><input id="in-' + i + '-' + j + '-weight" data-k="weight" data-i="' + i + '" data-j="' + j + '" inputmode="decimal" value="' + esc(r.weight != null ? String(r.weight).replace(".",",") : "") + '" placeholder="' + esc(tg.weight != null ? String(tg.weight).replace(".",",") : (ex.equip ? "" : "PDC")) + '" aria-label="Série ' + (j+1) + ', charge en kilos"><span>kg</span></label>';
-      if (goR) h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="Lancer le minuteur de ' + esc(tg.time) + ' secondes, série ' + (j+1) + '">▶</button>';
-      h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
-  }
-  h += '</div>';
-  if (!timed && goR) h += S.askReps && S.askReps.i === i
+  var h = '<div class="visual"' + (tag ? ' data-compact' : '') + '>' + (tag ? '<span class="vtag">' + esc(tag) + '</span>' : '');
+  if (imgs.length) h += '<div class="frames' + (imgs.length > 1 ? ' anim' : '') + '">' + imgs.map(function(u, k){ return '<img src="' + esc(u) + '" alt="' + (k ? "Position d'arrivée" : "Position de départ") + '" data-fallback>'; }).join("") + '</div>';
+  h += '<canvas class="fig" data-i="' + i + '" role="img" aria-label="Animation du mouvement"' + (imgs.length ? ' hidden' : '') + '></canvas>';
+  var cap = tag ? (ex.name || "Exercice") : (ex.visualNote || (imgs.length ? "Départ et arrivée, en alternance" : "Mouvement de profil, en boucle"));
+  h += '<div class="cap"><span>' + esc(cap) + '</span><a href="' + esc(demo) + '" target="_blank" rel="noopener">Voir une démo</a></div></div>';
+  return h;
+}
+function cuesHtml(ex){ return (Array.isArray(ex.cues) && ex.cues.length) ? '<ul class="cues">' + ex.cues.map(function(c){ return '<li>' + esc(c) + '</li>'; }).join("") + '</ul>' : ''; }
+function cmpHtml(ex){ var t = targetSummary(ex), p = prevSummary(ex);
+  return '<div class="cmp"><div><div class="eyebrow">Dernière fois</div>' + (p ? '<div class="v">' + esc(p.v) + '</div><div class="s">' + esc(p.s) + (p.note ? ' · ' + esc(p.note) : '') + '</div>' : '<div class="v">—</div><div class="s">Première fois</div>') + '</div>' +
+    '<div class="goal"><div class="eyebrow">Objectif</div><div class="v">' + esc(t.v) + '</div><div class="s">' + esc(t.s) + '</div></div></div>'; }
+function hintsHtml(i){ var ex = exercises()[i], timed = isTimed(ex), h = '';
+  if (!timed && isRepsInTime(ex, tgt(ex,0))) h += S.askReps && S.askReps.i === i
     ? '<div class="ok-box"><b>Temps écoulé.</b> Saisis le nombre de répétitions faites, puis valide ✓.</div>'
     : '<p class="hint">Touche ▶ : minuteur de ' + esc(tgt(ex,0).time) + ' s avec bips, puis tu notes tes répétitions.</p>';
   else if (timed && isMax(ex, tgt(ex,0))) h += '<p class="hint">Touche ▶ : le chrono tourne jusqu\'à ce que tu touches « Arrêter », et ton temps est enregistré. Un bip te signale le repère' + (tgt(ex,0).time ? ' de ' + esc(tgt(ex,0).time) + ' s' : '') + '.</p>';
-  if (!timed && isPerSide(ex)) h += '<p class="hint">Saisis les répétitions d\'un seul côté (même nombre de chaque côté).</p>';
-  var xn = exNote(i);
-  if (xn || S.noteOpen === i) h += '<div class="stack"><label class="lb" for="xn-' + i + '">Ma note sur cet exercice</label><textarea id="xn-' + i + '" data-xn="' + i + '" placeholder="Variante faite, élastique utilisé, prise, sensation…">' + esc(xn) + '</textarea></div>';
-  else h += '<button class="btn block" data-act="xnote" data-i="' + i + '">+ Ajouter une note (variante, élastique…)</button>';
+  if (!timed && isPerSide(ex)) h += '<p class="hint">' + (ssLabel(i) ? esc(ssLabel(i)) + ' : ' : '') + 'saisis les répétitions d\'un seul côté (même nombre de chaque côté).</p>';
+  return h; }
+function noteHtml(i){ var ex = exercises()[i], xn = exNote(i), h = '';
+  if (xn || S.noteOpen === i) h += '<div class="stack"><label class="lb" for="xn-' + i + '">Ma note sur ' + (ssLabel(i) ? esc(ex.name || "cet exercice") : 'cet exercice') + '</label><textarea id="xn-' + i + '" data-xn="' + i + '" placeholder="Variante faite, élastique utilisé, prise, sensation…">' + esc(xn) + '</textarea></div>';
+  else h += '<button class="btn block" data-act="xnote" data-i="' + i + '">+ Ajouter une note' + (ssLabel(i) ? ' (' + esc(ssLabel(i)) + ')' : ' (variante, élastique…)') + '</button>';
   if (ex.note) h += '<div class="note"><b>Conseil du coach</b>' + esc(ex.note) + '</div>';
-  var last = i === exercises().length - 1;
-  h += '<div class="nav"><button class="btn" data-act="goto" data-i="' + (i === 0 ? 'overview' : i-1) + '">' + (i === 0 ? 'Plan' : 'Précédent') + '</button><button class="btn primary" data-act="goto" data-i="' + (last ? 'end' : i+1) + '">' + (last ? 'Bilan de séance' : 'Exercice suivant') + '</button></div>';
+  return h; }
+function setObj(ex, tg){ if (isTimed(ex)) return isMax(ex, tg) ? "max" + (tg.time ? " (repère " + tg.time + " s)" : "") : (tg.time != null ? tg.time + " s" : "");
+  return (tg.reps != null ? tg.reps : "?") + sideTxt(ex) + (tg.time != null ? " en " + tg.time + " s" : "") + (isBand(ex) && tg.band ? " · " + tg.band : tg.weight != null ? " × " + weightTxt(tg.weight) : ""); }
+/* Une ligne de série. `lab` (A1, A2…) : page de super-série, la ligne porte le nom de l'exercice. */
+function setRowHtml(i, j, lab){
+  var ex = exercises()[i], tg = tgt(ex,j), r = getSet(i,j), h = '', sn = lab ? esc(lab) : (j+1);
+  var who = lab ? esc(ex.name || "Exercice") + ', série ' + (j+1) : 'Série ' + (j+1);
+  if (lab) h += '<div class="set-lb' + (r.done ? ' done' : '') + '"><b>' + esc(lab) + '</b> ' + esc(ex.name || "Exercice") + ' · série ' + (j+1) + '/' + nSets(ex) + ' · ' + esc(setObj(ex, tg)) + '</div>';
+  if (isTimed(ex)){
+    h += '<div class="set timed' + (r.done ? ' done' : '') + '"><span class="sn num">' + sn + '</span>';
+    h += '<label class="fld"><input id="in-' + i + '-' + j + '-time" data-k="time" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.time != null ? r.time : "") + '" placeholder="' + esc(isMax(ex, tg) ? "max" : (tg.time != null ? tg.time : "")) + '" aria-label="' + who + ', secondes"><span>s</span></label>';
+    h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="' + (isMax(ex, tg) ? "Lancer le chrono libre" : "Lancer le minuteur") + ', ' + who + '">▶</button>';
+    h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider : ' + who + '">✓</button></div>';
+    return h; }
+  var goR = isRepsInTime(ex, tgt(ex,0)), gc = goR ? ' go5' : '', ask = S.askReps && S.askReps.i === i && S.askReps.j === j;
+  h += '<div class="set' + gc + (r.done ? ' done' : '') + (ask ? ' ask' : '') + '"><span class="sn num">' + sn + '</span>';
+  h += '<label class="fld"><input id="in-' + i + '-' + j + '-reps" data-k="reps" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.reps != null ? r.reps : "") + '" placeholder="' + esc(tg.reps != null ? tg.reps : "") + '" aria-label="' + who + ', répétitions' + (isPerSide(ex) ? ' par côté' : '') + '">' + (lab ? '<span>' + (isPerSide(ex) ? 'reps/côté' : 'reps') + '</span>' : '') + '</label>';
+  if (isBand(ex)){ var bv = r.band != null ? r.band : (tg.band || "");
+    h += '<label class="fld band"><select id="in-' + i + '-' + j + '-band" data-k="band" data-i="' + i + '" data-j="' + j + '" aria-label="' + who + ', élastique utilisé"><option value=""' + (bv ? '' : ' selected') + '>—</option>' + BANDS.map(function(b){ return '<option' + (b === bv ? ' selected' : '') + '>' + b + '</option>'; }).join("") + '</select><span aria-hidden="true">▾</span></label>'; }
+  else h += '<label class="fld"><input id="in-' + i + '-' + j + '-weight" data-k="weight" data-i="' + i + '" data-j="' + j + '" inputmode="decimal" value="' + esc(r.weight != null ? String(r.weight).replace(".",",") : "") + '" placeholder="' + esc(tg.weight != null ? String(tg.weight).replace(".",",") : (ex.equip ? "" : "PDC")) + '" aria-label="' + who + ', charge en kilos"><span>kg</span></label>';
+  if (goR) h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="Lancer le minuteur de ' + esc(tg.time) + ' secondes, ' + who + '">▶</button>';
+  h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider : ' + who + '">✓</button></div>';
+  return h;
+}
+function navHtml(i0){ var ps = pageStarts(), k = ps.indexOf(i0), last = k === ps.length - 1;
+  return '<div class="nav"><button class="btn" data-act="goto" data-i="' + (k <= 0 ? 'overview' : ps[k-1]) + '">' + (k <= 0 ? 'Plan' : 'Précédent') + '</button><button class="btn primary" data-act="goto" data-i="' + (last ? 'end' : ps[k+1]) + '">' + (last ? 'Bilan de séance' : 'Exercice suivant') + '</button></div>'; }
+
+function viewExercise(i){
+  var ex = exercises()[i]; if (!ex){ S.view = "overview"; return viewOverview(); }
+  var g = groupOf(i); if (g.length > 1) return viewGroup(g);
+  var timed = isTimed(ex), n = nSets(ex), ps = pageStarts();
+  var h = chipsRow(i);
+  h += '<div class="stack"><div class="eyebrow num">Exercice ' + (ps.indexOf(i)+1) + ' / ' + ps.length + (ex.tempo ? ' · tempo ' + esc(ex.tempo) : '') + '</div><h1>' + esc(ex.name || "Exercice") + '</h1></div>';
+  h += visualHtml(ex, i, "");
+  h += cuesHtml(ex) + cmpHtml(ex);
+  h += '<div class="sets">';
+  if (timed) h += '<div class="sets-h timed"><span>#</span><span>Temps</span><span></span><span></span></div>';
+  else { var goR = isRepsInTime(ex, tgt(ex,0));
+    h += '<div class="sets-h' + (goR ? ' go5' : '') + '"><span>#</span><span>' + (isPerSide(ex) ? 'Reps / côté' : 'Reps') + '</span><span>' + (isBand(ex) ? 'Élastique' : 'Charge') + '</span>' + (goR ? '<span></span>' : '') + '<span></span></div>'; }
+  for (var j=0;j<n;j++) h += setRowHtml(i, j, "");
+  h += '</div>';
+  h += hintsHtml(i) + noteHtml(i) + navHtml(i);
+  return h;
+}
+
+/* Page de super-série : les visuels côte à côte, puis toutes les séries dans l'ordre d'exécution. */
+function viewGroup(g){
+  var exs = exercises(), i0 = g[0], key = ssKey(exs[i0]), ps = pageStarts(), labs = g.map(ssLabel);
+  var h = chipsRow(i0);
+  h += '<div class="stack"><div class="eyebrow num">Exercice ' + (ps.indexOf(i0)+1) + ' / ' + ps.length + ' · super-série ' + esc(key) + '</div><h1>' + g.map(function(i){ return esc(exs[i].name || "Exercice"); }).join(' <span class="plus">+</span> ') + '</h1></div>';
+  h += '<div class="vgrid">' + g.map(function(i, k){ return visualHtml(exs[i], i, labs[k]); }).join("") + '</div>';
+  h += '<p class="hint">Enchaîne ' + labs.join(" puis ") + ', puis recommence. Les séries sont dans l\'ordre où tu les fais ; le repos se lance quand tu valides ✓.</p>';
+  h += '<div class="sets">' + seqOf(g).map(function(p){ return setRowHtml(p[0], p[1], ssLabel(p[0])); }).join("") + '</div>';
+  g.forEach(function(i){ h += hintsHtml(i); });
+  g.forEach(function(i, k){ var ex = exs[i];
+    h += '<section class="ssd"><h2><span class="vtag in">' + esc(labs[k]) + '</span> ' + esc(ex.name || "Exercice") + '</h2>' + (ex.tempo ? '<div class="eyebrow">Tempo ' + esc(ex.tempo) + '</div>' : '') +
+      cuesHtml(ex) + cmpHtml(ex) + noteHtml(i) + '</section>'; });
+  h += navHtml(i0);
   return h;
 }
 
@@ -367,8 +418,14 @@ function keepAwake(){ try{ if (navigator.wakeLock && document.visibilityState ==
 document.addEventListener("visibilitychange", function(){ var r = S.sid && S.results[S.sid]; if (document.visibilityState === "visible" && r && r.data.startedAt && r.data.status !== "terminée") keepAwake(); });
 
 function begin(){ var r = result(); if (!r.startedAt){ r.startedAt = new Date().toISOString(); r.status = "en cours"; markDirty(); } keepAwake(); }
-function nextLabel(i, j){ var ex = exercises()[i]; if (j + 1 < nSets(ex)) return "Ensuite : " + ex.name + " · série " + (j+2);
-  var nx = exercises()[i+1]; return nx ? "Ensuite : " + nx.name : "Ensuite : bilan"; }
+/* Ce qui vient après la série (i, j), dans l'ordre d'exécution de sa page. */
+function nextAfter(i, j){ var g = groupOf(i), seq = seqOf(g), pos = -1;
+  seq.forEach(function(p, k){ if (p[0] === i && p[1] === j) pos = k; });
+  return { g:g, next: pos >= 0 && pos < seq.length - 1 ? seq[pos+1] : null }; }
+function nextLabel(i, j){ var n = nextAfter(i, j);
+  if (n.next) return "Ensuite : " + dispName(n.next[0]) + " · série " + (n.next[1]+1);
+  var nxStart = n.g[n.g.length-1] + 1; if (nxStart >= exercises().length) return "Ensuite : bilan";
+  var ng = groupOf(nxStart); return "Ensuite : " + ng.map(function(x){ return exercises()[x].name; }).join(" + "); }
 
 function checkSet(i, j, auto){
   var ex = exercises()[i], tg = tgt(ex, j), r = getSet(i, j);
@@ -380,9 +437,9 @@ function checkSet(i, j, auto){
   if (r.weight == null && tg.weight != null) patch.weight = tg.weight;
   if (isBand(ex) && r.band == null && tg.band) patch.band = tg.band;
   patchSet(i, j, patch); markDirty(); S.askReps = null;
-  var lastSet = j + 1 >= nSets(ex), lastEx = i + 1 >= exercises().length;
-  var rest = lastSet ? (ex.restAfter != null ? ex.restAfter : ex.rest) : ex.rest;
-  if (!(lastSet && lastEx) && rest > 0) startTimer({ kind:"rest", total:Number(rest), label:"Repos", next:nextLabel(i, j) });
+  var nx = nextAfter(i, j), endPage = !nx.next, lastPage = nx.g[nx.g.length-1] + 1 >= exercises().length;
+  var rest = endPage ? (ex.restAfter != null ? ex.restAfter : ex.rest) : ex.rest;
+  if (!(endPage && lastPage) && rest > 0) startTimer({ kind:"rest", total:Number(rest), label:"Repos", next:nextLabel(i, j) });
   else stopTimer();
   render();
 }
@@ -426,7 +483,7 @@ function tickChrono(){ var r = S.sid && S.results[S.sid] && S.results[S.sid].dat
 setInterval(tick, 250);
 
 /* ---------- Événements ---------- */
-function goto(v){ S.copyText = null; S.noteOpen = null; S.askReps = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = Number(v); render(); window.scrollTo(0, 0); }
+function goto(v){ S.copyText = null; S.noteOpen = null; S.askReps = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = pageStart(Number(v)); render(); window.scrollTo(0, 0); }
 
 document.addEventListener("click", function(ev){
   var b = ev.target.closest("[data-act]"); if (!b) return; var act = b.getAttribute("data-act");
@@ -467,7 +524,10 @@ app.addEventListener("submit", function(ev){ if (ev.target.id !== "cfgform") ret
   save(CFG_KEY, S.cfg); document.activeElement && document.activeElement.blur();
   S.view = "overview"; render(); sync().then(render); });
 document.addEventListener("error", function(ev){ var t = ev.target;
-  if (t && t.tagName === "IMG" && t.hasAttribute("data-fallback")){ var f = $("#frames"), c = $("#fig"); if (f) f.hidden = true; var cap = document.querySelector(".visual .cap span"); if (cap) cap.textContent = "Mouvement de profil, en boucle"; if (c){ c.hidden = false; startFig(); } } }, true);
+  if (t && t.tagName === "IMG" && t.hasAttribute("data-fallback")){ var v = t.closest(".visual"); if (!v) return;
+    var f = v.querySelector(".frames"), c = v.querySelector("canvas.fig"); if (f) f.hidden = true;
+    var cap = v.querySelector(".cap span"); if (cap && !v.hasAttribute("data-compact")) cap.textContent = "Mouvement de profil, en boucle";
+    if (c && c.hidden){ c.hidden = false; startFig(c); } } }, true);
 
 /* ---------- Silhouette animée (si pas de photo) ---------- */
 var STAND = { hd:[102,42], s:[102,58], h:[102,110], k:[102,145], a:[102,180], e:[100,84], w:[101,108] };
@@ -504,17 +564,20 @@ function body(c, J, main, back, equip, ghost, cc){
   c.strokeStyle = main; seg(c, [J.hd, J.s, J.h]); seg(c, [J.h, J.k, J.a]); seg(c, [J.s, J.e, J.w]);
   c.fillStyle = main; c.beginPath(); c.arc(J.hd[0], J.hd[1], ghost ? 9 : 11, 0, Math.PI*2); c.fill();
   if (!ghost && equip) equipAt(c, J.w, equip, main, cc.ghost); }
-var figRaf = null, reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
-function stopFig(){ if (figRaf) cancelAnimationFrame(figRaf); figRaf = null; }
-function startVisual(){ var c = $("#fig"); if (c && !c.hidden) startFig(); else stopFig(); }
-function startFig(){ stopFig(); var cv = $("#fig"); if (!cv) return; var ex = exercises()[S.view]; if (!ex) return;
+/* Une animation par canevas visible (deux sur une page de super-série). */
+var figRafs = {}, figGen = 0, reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+function stopFig(){ for (var k in figRafs) cancelAnimationFrame(figRafs[k]); figRafs = {}; figGen++; }
+function startVisual(){ stopFig(); Array.prototype.forEach.call(document.querySelectorAll("canvas.fig"), function(c){ if (!c.hidden) startFig(c); }); }
+function startFig(cv){ if (!cv) return; var key = cv.getAttribute("data-i"), ex = exercises()[num(key)]; if (!ex) return;
+  if (figRafs[key]) cancelAnimationFrame(figRafs[key]); var gen = figGen;
   var pose = (ex.pose && ex.pose.a && ex.pose.b) ? ex.pose : (POSES[ex.visual] || POSES.debout);
   var A = full(pose.a), B = full(pose.b), equip = ex.equip || pose.equip || null, tempo = Number(ex.tempoSec || pose.tempo || 2.6);
   var bx0 = 1e9, bx1 = -1e9, by0 = 1e9, pad = equip ? 22 : 14;
   [A, B].forEach(function(J){ for (var k in J){ bx0 = Math.min(bx0, J[k][0] - pad); bx1 = Math.max(bx1, J[k][0] + pad); by0 = Math.min(by0, J[k][1] - pad); } });
   var cc = colors();
   function frame(ts){ var c = cv.getContext("2d"), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
-    if (!w || !h){ figRaf = requestAnimationFrame(frame); return; }
+    if (gen !== figGen || !cv.isConnected) return;
+    if (!w || !h){ figRafs[key] = requestAnimationFrame(frame); return; }
     if (cv.width !== Math.round(w*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
     c.setTransform(dpr,0,0,dpr,0,0); c.clearRect(0,0,w,h);
     var bw = bx1 - bx0, bh = 186 - by0, sc = Math.min((w - 32) / bw, (h - 20) / bh, h / 120);
@@ -525,8 +588,8 @@ function startFig(){ stopFig(); var cv = $("#fig"); if (!cv) return; var ex = ex
     var t = reduce ? 1 : (1 - Math.cos(ts/1000 / tempo * Math.PI * 2)) / 2;
     body(c, mix(A, B, t), cc.fig, cc.back, equip, false, cc);
     c.restore();
-    if (!reduce) figRaf = requestAnimationFrame(frame); }
-  figRaf = requestAnimationFrame(frame); }
+    if (!reduce) figRafs[key] = requestAnimationFrame(frame); }
+  figRafs[key] = requestAnimationFrame(frame); }
 
 /* ---------- Mises à jour de l'app ---------- */
 if ("serviceWorker" in navigator){
