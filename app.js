@@ -54,17 +54,21 @@ function patchSet(i, j, patch){ var ex = exercises()[i], id = exId(ex,i), R = re
 function exNote(i){ var ex = exercises()[i], R = result(); return (R.exNotes && R.exNotes[exId(ex,i)]) || ""; }
 function setExNote(i, v){ var ex = exercises()[i], R = result(); if (!R.exNotes) R.exNotes = {}; var id = exId(ex,i); if (v) R.exNotes[id] = v; else delete R.exNotes[id]; }
 function doneCount(i){ var ex = exercises()[i], c = 0; for (var j=0;j<nSets(ex);j++) if (getSet(i,j).done) c++; return c; }
+var BANDS = ["X-Light","Light","Medium","Heavy","X-Heavy"];
+function isBand(ex){ return !!ex && ex.equip === "elastique"; }
 function weightTxt(w, ex){ if (w == null || w === "") return (ex && ex.equip) ? "" : "PDC"; return String(w).replace(".",",") + " kg"; }
 function setTxt(s, ex){ if (!s) return "";
   if (s.time != null && s.reps == null) return s.time + " s" + (s.weight != null ? " · " + weightTxt(s.weight) : "");
-  var r = (s.reps != null ? s.reps : "?"); var w = weightTxt(s.weight, ex); return r + (w && w !== "PDC" ? " × " + w : ""); }
+  var r = (s.reps != null ? s.reps : "?");
+  if (s.band) return r + " · " + s.band;
+  var w = weightTxt(s.weight, ex); return r + (w && w !== "PDC" ? " × " + w : ""); }
 function restTxt(ex){ return "repos " + fmt(ex.rest || 0); }
 function targetSummary(ex){ var n = nSets(ex), w0;
   if (Array.isArray(ex.targets) && ex.targets.length){
     var parts = ex.targets.map(function(t){ return t.time != null && t.reps == null ? t.time + " s" : (t.reps != null ? t.reps : "?"); });
-    w0 = ex.targets[0].weight; return { v: parts.join(" · "), s: (w0 != null ? weightTxt(w0) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
+    w0 = ex.targets[0].weight; return { v: parts.join(" · "), s: (isBand(ex) ? "élastique" + (ex.targets[0].band ? " " + ex.targets[0].band : "") + " · " : w0 != null ? weightTxt(w0) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
   var t = ex.target || {}; var v = isTimed(ex) ? n + " × " + (t.time || "?") + " s" : n + " × " + (t.reps != null ? t.reps : "?");
-  return { v: v, s: (t.weight != null ? weightTxt(t.weight) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
+  return { v: v, s: (isBand(ex) ? "élastique" + (t.band ? " " + t.band : "") + " · " : t.weight != null ? weightTxt(t.weight) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
 function prevSummary(ex){ var p = ex.prev; if (!p) return null;
   var v = p.summary || (Array.isArray(p.sets) ? p.sets.map(function(s){ return setTxt(s, ex); }).join(" · ") : "");
   return { v: v || "—", s: p.date ? "le " + dateFr(p.date) : "", note: p.note || "" }; }
@@ -287,11 +291,13 @@ function viewExercise(i){
       h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="Lancer le minuteur de la série ' + (j+1) + '">▶</button>';
       h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
   } else {
-    h += '<div class="sets-h"><span>#</span><span>Reps</span><span>Charge</span><span></span></div>';
+    h += '<div class="sets-h"><span>#</span><span>Reps</span><span>' + (isBand(ex) ? 'Élastique' : 'Charge') + '</span><span></span></div>';
     for (j=0;j<n;j++){ tg = tgt(ex,j); r = getSet(i,j);
       h += '<div class="set' + (r.done ? ' done' : '') + '"><span class="sn num">' + (j+1) + '</span>';
       h += '<label class="fld"><input id="in-' + i + '-' + j + '-reps" data-k="reps" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.reps != null ? r.reps : "") + '" placeholder="' + esc(tg.reps != null ? tg.reps : "") + '" aria-label="Série ' + (j+1) + ', répétitions"></label>';
-      h += '<label class="fld"><input id="in-' + i + '-' + j + '-weight" data-k="weight" data-i="' + i + '" data-j="' + j + '" inputmode="decimal" value="' + esc(r.weight != null ? String(r.weight).replace(".",",") : "") + '" placeholder="' + esc(tg.weight != null ? String(tg.weight).replace(".",",") : (ex.equip ? "" : "PDC")) + '" aria-label="Série ' + (j+1) + ', charge en kilos"><span>kg</span></label>';
+      if (isBand(ex)){ var bv = r.band != null ? r.band : (tg.band || "");
+        h += '<label class="fld band"><select id="in-' + i + '-' + j + '-band" data-k="band" data-i="' + i + '" data-j="' + j + '" aria-label="Série ' + (j+1) + ', élastique utilisé"><option value=""' + (bv ? '' : ' selected') + '>—</option>' + BANDS.map(function(b){ return '<option' + (b === bv ? ' selected' : '') + '>' + b + '</option>'; }).join("") + '</select><span aria-hidden="true">▾</span></label>'; }
+      else h += '<label class="fld"><input id="in-' + i + '-' + j + '-weight" data-k="weight" data-i="' + i + '" data-j="' + j + '" inputmode="decimal" value="' + esc(r.weight != null ? String(r.weight).replace(".",",") : "") + '" placeholder="' + esc(tg.weight != null ? String(tg.weight).replace(".",",") : (ex.equip ? "" : "PDC")) + '" aria-label="Série ' + (j+1) + ', charge en kilos"><span>kg</span></label>';
       h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
   }
   h += '</div>';
@@ -355,6 +361,7 @@ function checkSet(i, j, auto){
   if (isTimed(ex)){ if (r.time == null && tg.time != null) patch.time = tg.time; }
   else if (r.reps == null && tg.reps != null) patch.reps = tg.reps;
   if (r.weight == null && tg.weight != null) patch.weight = tg.weight;
+  if (isBand(ex) && r.band == null && tg.band) patch.band = tg.band;
   patchSet(i, j, patch); markDirty();
   var lastSet = j + 1 >= nSets(ex), lastEx = i + 1 >= exercises().length;
   var rest = lastSet ? (ex.restAfter != null ? ex.restAfter : ex.rest) : ex.rest;
@@ -420,7 +427,7 @@ document.addEventListener("click", function(ev){
 });
 document.addEventListener("change", function(ev){ if (ev.target.id === "pick"){ S.sid = ev.target.value; S.view = "overview"; render(); } });
 app.addEventListener("input", function(ev){ var t = ev.target;
-  if (t.hasAttribute("data-k")){ var p = {}; p[t.getAttribute("data-k")] = num(t.value); patchSet(num(t.getAttribute("data-i")), num(t.getAttribute("data-j")), p); markDirty(); }
+  if (t.hasAttribute("data-k")){ var p = {}, key = t.getAttribute("data-k"); p[key] = key === "band" ? (t.value || null) : num(t.value); patchSet(num(t.getAttribute("data-i")), num(t.getAttribute("data-j")), p); markDirty(); }
   else if (t.hasAttribute("data-xn")){ setExNote(num(t.getAttribute("data-xn")), t.value); markDirty(); }
   else if (t.hasAttribute("data-f")){ result()[t.getAttribute("data-f")] = t.value; markDirty(); } });
 app.addEventListener("submit", function(ev){ if (ev.target.id !== "cfgform") return; ev.preventDefault();
