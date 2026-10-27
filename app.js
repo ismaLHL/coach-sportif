@@ -46,6 +46,13 @@ function exId(ex, i){ return String(ex.id || ("e"+i)); }
 function nSets(ex){ return Math.max(1, Number(ex.sets) || (Array.isArray(ex.targets) ? ex.targets.length : 1)); }
 function tgt(ex, j){ return (Array.isArray(ex.targets) && ex.targets[j]) || ex.target || {}; }
 function isTimed(ex){ if (ex.mode) return ex.mode === "time"; var t = tgt(ex,0); return t.time != null && t.reps == null; }
+/* Tenue max (gainage…) : chrono libre jusqu'à l'arrêt, l'objectif n'est qu'un repère. */
+function isMax(ex, t){ return !!(ex.max || (t && t.max)); }
+/* Exercice unilatéral : répétitions saisies pour un seul côté. */
+function isPerSide(ex){ return !!(ex && ex.perSide); }
+/* Répétitions en temps limité (squats en 30 s…) : objectif avec un temps, saisie des répétitions à la fin. */
+function isRepsInTime(ex, t){ return !isTimed(ex) && !!t && t.time != null; }
+function sideTxt(ex){ return isPerSide(ex) ? " /côté" : ""; }
 function newResult(sid){ return { sessionId:sid, status:"prévue", startedAt:null, finishedAt:null, durationMin:null, sets:{}, exNotes:{}, feeling:null, pain:"", notes:"", updatedAt:"" }; }
 function result(){ if (!S.sid) return null; var r = S.results[S.sid]; if (!r){ r = S.results[S.sid] = { sha:null, data:newResult(S.sid), dirty:false }; } if (!r.data.sets) r.data.sets = {}; return r.data; }
 function getSet(i, j){ var ex = exercises()[i]; var a = result().sets[exId(ex,i)]; return (a && a[j]) || {}; }
@@ -59,15 +66,17 @@ function isBand(ex){ return !!ex && ex.equip === "elastique"; }
 function weightTxt(w, ex){ if (w == null || w === "") return (ex && ex.equip) ? "" : "PDC"; return String(w).replace(".",",") + " kg"; }
 function setTxt(s, ex){ if (!s) return "";
   if (s.time != null && s.reps == null) return s.time + " s" + (s.weight != null ? " · " + weightTxt(s.weight) : "");
-  var r = (s.reps != null ? s.reps : "?");
+  var r = (s.reps != null ? s.reps : "?") + sideTxt(ex) + (s.time != null && s.reps != null ? " en " + s.time + " s" : "");
   if (s.band) return r + " · " + s.band;
   var w = weightTxt(s.weight, ex); return r + (w && w !== "PDC" ? " × " + w : ""); }
 function restTxt(ex){ return "repos " + fmt(ex.rest || 0); }
 function targetSummary(ex){ var n = nSets(ex), w0;
   if (Array.isArray(ex.targets) && ex.targets.length){
     var parts = ex.targets.map(function(t){ return t.time != null && t.reps == null ? t.time + " s" : (t.reps != null ? t.reps : "?"); });
-    w0 = ex.targets[0].weight; return { v: parts.join(" · "), s: (isBand(ex) ? "élastique" + (ex.targets[0].band ? " " + ex.targets[0].band : "") + " · " : w0 != null ? weightTxt(w0) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
-  var t = ex.target || {}; var v = isTimed(ex) ? n + " × " + (t.time || "?") + " s" : n + " × " + (t.reps != null ? t.reps : "?");
+    w0 = ex.targets[0].weight; return { v: parts.join(" · ") + sideTxt(ex), s: (isBand(ex) ? "élastique" + (ex.targets[0].band ? " " + ex.targets[0].band : "") + " · " : w0 != null ? weightTxt(w0) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
+  var t = ex.target || {};
+  var v = isTimed(ex) ? n + " × " + (isMax(ex, t) ? "max" + (t.time ? " (repère " + t.time + " s)" : "") : (t.time || "?") + " s")
+    : n + " × " + (t.reps != null ? t.reps : "?") + sideTxt(ex) + (t.time != null ? " en " + t.time + " s" : "");
   return { v: v, s: (isBand(ex) ? "élastique" + (t.band ? " " + t.band : "") + " · " : t.weight != null ? weightTxt(t.weight) + " · " : (ex.equip ? "" : "poids du corps · ")) + restTxt(ex) }; }
 function prevSummary(ex){ var p = ex.prev; if (!p) return null;
   var v = p.summary || (Array.isArray(p.sets) ? p.sets.map(function(s){ return setTxt(s, ex); }).join(" · ") : "");
@@ -287,20 +296,28 @@ function viewExercise(i){
     h += '<div class="sets-h timed"><span>#</span><span>Temps</span><span></span><span></span></div>';
     for (j=0;j<n;j++){ tg = tgt(ex,j); r = getSet(i,j);
       h += '<div class="set timed' + (r.done ? ' done' : '') + '"><span class="sn num">' + (j+1) + '</span>';
-      h += '<label class="fld"><input id="in-' + i + '-' + j + '-time" data-k="time" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.time != null ? r.time : "") + '" placeholder="' + esc(tg.time != null ? tg.time : "") + '" aria-label="Série ' + (j+1) + ', secondes"><span>s</span></label>';
-      h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="Lancer le minuteur de la série ' + (j+1) + '">▶</button>';
+      h += '<label class="fld"><input id="in-' + i + '-' + j + '-time" data-k="time" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.time != null ? r.time : "") + '" placeholder="' + esc(isMax(ex, tg) ? "max" : (tg.time != null ? tg.time : "")) + '" aria-label="Série ' + (j+1) + ', secondes"><span>s</span></label>';
+      h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="' + (isMax(ex, tg) ? "Lancer le chrono libre" : "Lancer le minuteur") + ' de la série ' + (j+1) + '">▶</button>';
       h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
   } else {
-    h += '<div class="sets-h"><span>#</span><span>Reps</span><span>' + (isBand(ex) ? 'Élastique' : 'Charge') + '</span><span></span></div>';
+    var goR = isRepsInTime(ex, tgt(ex,0)), gc = goR ? ' go5' : '';
+    h += '<div class="sets-h' + gc + '"><span>#</span><span>' + (isPerSide(ex) ? 'Reps / côté' : 'Reps') + '</span><span>' + (isBand(ex) ? 'Élastique' : 'Charge') + '</span>' + (goR ? '<span></span>' : '') + '<span></span></div>';
     for (j=0;j<n;j++){ tg = tgt(ex,j); r = getSet(i,j);
-      h += '<div class="set' + (r.done ? ' done' : '') + '"><span class="sn num">' + (j+1) + '</span>';
+      var ask = S.askReps && S.askReps.i === i && S.askReps.j === j;
+      h += '<div class="set' + gc + (r.done ? ' done' : '') + (ask ? ' ask' : '') + '"><span class="sn num">' + (j+1) + '</span>';
       h += '<label class="fld"><input id="in-' + i + '-' + j + '-reps" data-k="reps" data-i="' + i + '" data-j="' + j + '" inputmode="numeric" value="' + esc(r.reps != null ? r.reps : "") + '" placeholder="' + esc(tg.reps != null ? tg.reps : "") + '" aria-label="Série ' + (j+1) + ', répétitions"></label>';
       if (isBand(ex)){ var bv = r.band != null ? r.band : (tg.band || "");
         h += '<label class="fld band"><select id="in-' + i + '-' + j + '-band" data-k="band" data-i="' + i + '" data-j="' + j + '" aria-label="Série ' + (j+1) + ', élastique utilisé"><option value=""' + (bv ? '' : ' selected') + '>—</option>' + BANDS.map(function(b){ return '<option' + (b === bv ? ' selected' : '') + '>' + b + '</option>'; }).join("") + '</select><span aria-hidden="true">▾</span></label>'; }
       else h += '<label class="fld"><input id="in-' + i + '-' + j + '-weight" data-k="weight" data-i="' + i + '" data-j="' + j + '" inputmode="decimal" value="' + esc(r.weight != null ? String(r.weight).replace(".",",") : "") + '" placeholder="' + esc(tg.weight != null ? String(tg.weight).replace(".",",") : (ex.equip ? "" : "PDC")) + '" aria-label="Série ' + (j+1) + ', charge en kilos"><span>kg</span></label>';
+      if (goR) h += '<button class="go" data-act="work" data-i="' + i + '" data-j="' + j + '" aria-label="Lancer le minuteur de ' + esc(tg.time) + ' secondes, série ' + (j+1) + '">▶</button>';
       h += '<button class="ck" data-act="check" data-i="' + i + '" data-j="' + j + '" aria-label="Valider la série ' + (j+1) + '">✓</button></div>'; }
   }
   h += '</div>';
+  if (!timed && goR) h += S.askReps && S.askReps.i === i
+    ? '<div class="ok-box"><b>Temps écoulé.</b> Saisis le nombre de répétitions faites, puis valide ✓.</div>'
+    : '<p class="hint">Touche ▶ : minuteur de ' + esc(tgt(ex,0).time) + ' s avec bips, puis tu notes tes répétitions.</p>';
+  else if (timed && isMax(ex, tgt(ex,0))) h += '<p class="hint">Touche ▶ : le chrono tourne jusqu\'à ce que tu touches « Arrêter », et ton temps est enregistré. Un bip te signale le repère' + (tgt(ex,0).time ? ' de ' + esc(tgt(ex,0).time) + ' s' : '') + '.</p>';
+  if (!timed && isPerSide(ex)) h += '<p class="hint">Saisis les répétitions d\'un seul côté (même nombre de chaque côté).</p>';
   var xn = exNote(i);
   if (xn || S.noteOpen === i) h += '<div class="stack"><label class="lb" for="xn-' + i + '">Ma note sur cet exercice</label><textarea id="xn-' + i + '" data-xn="' + i + '" placeholder="Variante faite, élastique utilisé, prise, sensation…">' + esc(xn) + '</textarea></div>';
   else h += '<button class="btn block" data-act="xnote" data-i="' + i + '">+ Ajouter une note (variante, élastique…)</button>';
@@ -315,7 +332,7 @@ function viewEnd(){
   ex.forEach(function(e, i){ tot += nSets(e); dn += doneCount(i); });
   var h = chipsRow("end");
   h += '<div class="stack"><div class="eyebrow num">' + dn + ' / ' + tot + ' séries validées' + (r.startedAt ? ' · ' + fmtLong(((r.finishedAt ? new Date(r.finishedAt) : new Date()) - new Date(r.startedAt))/1000) : '') + '</div><h1>Bilan</h1></div>';
-  h += '<div class="stack"><span class="lb" id="feel-l">Ressenti global (1 = très facile, 10 = à fond)</span><div class="feel" role="group" aria-labelledby="feel-l">';
+  h += '<div class="stack"><span class="lb" id="feel-l">Difficulté de la séance (1 = très facile, 10 = à fond)</span><div class="feel" role="group" aria-labelledby="feel-l">';
   for (var v=1; v<=10; v++) h += '<button data-act="feel" data-v="' + v + '" class="' + (r.feeling === v ? 'on' : '') + '" aria-pressed="' + (r.feeling === v) + '">' + v + '</button>';
   h += '</div><div class="scale"><span>Facile</span><span>Maximal</span></div></div>';
   h += '<div class="stack"><label class="lb" for="f-pain">Douleurs ou gênes</label><textarea id="f-pain" data-f="pain" placeholder="Où, quand, intensité. Laisse vide si rien.">' + esc(r.pain) + '</textarea></div>';
@@ -333,7 +350,7 @@ function summaryText(){
   var s = session(), r = result(), lines = ["Séance du " + dateFr(s.date) + " — " + (s.title || "")];
   exercises().forEach(function(e, i){ var parts = []; for (var j=0;j<nSets(e);j++){ var x = getSet(i,j); if (x.done) parts.push(setTxt(x, e)); }
     var xn = exNote(i); lines.push((e.name || "Exercice") + " : " + (parts.length ? parts.join(", ") : "non fait") + (xn ? " (note : " + xn + ")" : "")); });
-  if (r.feeling) lines.push("Ressenti : " + r.feeling + "/10");
+  if (r.feeling) lines.push("Difficulté : " + r.feeling + "/10");
   if (r.pain) lines.push("Douleurs : " + r.pain);
   if (r.notes) lines.push("Notes : " + r.notes);
   if (r.durationMin) lines.push("Durée : " + r.durationMin + " min");
@@ -362,7 +379,7 @@ function checkSet(i, j, auto){
   else if (r.reps == null && tg.reps != null) patch.reps = tg.reps;
   if (r.weight == null && tg.weight != null) patch.weight = tg.weight;
   if (isBand(ex) && r.band == null && tg.band) patch.band = tg.band;
-  patchSet(i, j, patch); markDirty();
+  patchSet(i, j, patch); markDirty(); S.askReps = null;
   var lastSet = j + 1 >= nSets(ex), lastEx = i + 1 >= exercises().length;
   var rest = lastSet ? (ex.restAfter != null ? ex.restAfter : ex.rest) : ex.rest;
   if (!(lastSet && lastEx) && rest > 0) startTimer({ kind:"rest", total:Number(rest), label:"Repos", next:nextLabel(i, j) });
@@ -377,17 +394,28 @@ function startTimer(o){ o.start = Date.now(); o.end = o.kind === "stopwatch" ? n
   $("#shMinus").hidden = $("#shPlus").hidden = o.kind === "stopwatch";
   app.classList.add("with-sheet"); tick(); }
 function stopTimer(){ S.timer = null; $("#sheet").hidden = true; app.classList.remove("with-sheet"); }
-function endWork(elapsed){ var o = S.timer; if (!o) return; stopTimer(); patchSet(o.i, o.j, { time: Math.round(elapsed) }); checkSet(o.i, o.j, true); }
+function endWork(elapsed){ var o = S.timer; if (!o) return;
+  if (o.countReps) return endCount(elapsed);
+  stopTimer(); patchSet(o.i, o.j, { time: Math.round(elapsed) }); checkSet(o.i, o.j, true); }
+/* Fin d'un minuteur « répétitions en temps limité » : on garde le temps et on demande les répétitions. */
+function endCount(elapsed){ var o = S.timer; if (!o) return; stopTimer();
+  patchSet(o.i, o.j, { time: Math.round(elapsed) }); markDirty(); S.askReps = { i:o.i, j:o.j }; render();
+  var el = document.getElementById("in-" + o.i + "-" + o.j + "-reps");
+  if (el){ el.scrollIntoView({ block:"center" }); try{ el.focus(); }catch(e){} } }
 
+/* Décompte des 5 dernières secondes : hauteur qui monte, puis un bip final plus long. */
+var COUNTDOWN = { 5:523, 4:587, 3:659, 2:740, 1:831 };
 function tick(){
   var o = S.timer;
   if (o){ var now = Date.now();
-    if (o.kind === "stopwatch"){ $("#shTime").textContent = fmt((now - o.start)/1000); $("#shBar").style.width = "100%"; }
+    if (o.kind === "stopwatch"){ var el = (now - o.start)/1000; $("#shTime").textContent = fmt(el);
+      $("#shBar").style.width = (o.goal ? Math.min(100, el / o.goal * 100) : 100) + "%";
+      if (o.goal && !o.goalHit && el >= o.goal){ o.goalHit = true; beep(988, .5); $("#shNext").textContent = "Repère atteint · continue tant que c'est propre"; } }
     else if (!o.done){ var left = (o.end - now)/1000; $("#shTime").textContent = fmt(Math.ceil(left));
       $("#shBar").style.width = Math.min(100, Math.max(0, 100 - left / o.total * 100)) + "%";
       var whole = Math.ceil(left);
-      if (whole <= 3 && whole >= 1 && o.lastBeep !== whole){ o.lastBeep = whole; beep(660, .12); }
-      if (left <= 0){ beep(990, .45);
+      if (whole <= 5 && whole >= 1 && o.lastBeep !== whole && o.total > whole){ o.lastBeep = whole; beep(COUNTDOWN[whole], .15); }
+      if (left <= 0){ beep(1047, .9);
         if (o.kind === "work") endWork(o.total);
         else { o.done = true; $("#shTime").textContent = "Go !"; $("#sheet").classList.add("flash"); setTimeout(function(){ if (S.timer === o) stopTimer(); }, 1800); } } } }
   tickChrono();
@@ -398,7 +426,7 @@ function tickChrono(){ var r = S.sid && S.results[S.sid] && S.results[S.sid].dat
 setInterval(tick, 250);
 
 /* ---------- Événements ---------- */
-function goto(v){ S.copyText = null; S.noteOpen = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = Number(v); render(); window.scrollTo(0, 0); }
+function goto(v){ S.copyText = null; S.noteOpen = null; S.askReps = null; if (v === "overview" || v === "end" || v === "settings") S.view = v; else S.view = Number(v); render(); window.scrollTo(0, 0); }
 
 document.addEventListener("click", function(ev){
   var b = ev.target.closest("[data-act]"); if (!b) return; var act = b.getAttribute("data-act");
@@ -411,8 +439,10 @@ document.addEventListener("click", function(ev){
   else if (act === "check") checkSet(i, j, false);
   else if (act === "xnote"){ S.noteOpen = i; render(); var ta = document.getElementById("xn-" + i); if (ta) ta.focus(); }
   else if (act === "work"){ begin(); var ex = exercises()[i], tg = tgt(ex, j);
-    if (tg.time) startTimer({ kind:"work", total:Number(tg.time), label:ex.name + " · série " + (j+1), next:"Effort en cours", i:i, j:j });
-    else startTimer({ kind:"stopwatch", total:0, label:ex.name + " · série " + (j+1), next:"Arrête quand tu lâches", i:i, j:j }); }
+    var lbl = ex.name + " · série " + (j+1); S.askReps = null;
+    if (isMax(ex, tg) || !tg.time) startTimer({ kind:"stopwatch", total:0, goal:Number(tg.time) || 0, label:lbl, next:(tg.time ? "Repère " + tg.time + " s · " : "") + "Arrête quand tu lâches", i:i, j:j });
+    else if (isRepsInTime(ex, tg)) startTimer({ kind:"work", countReps:true, total:Number(tg.time), label:lbl, next:"Compte tes répétitions", i:i, j:j });
+    else startTimer({ kind:"work", total:Number(tg.time), label:lbl, next:"Effort en cours", i:i, j:j }); }
   else if (act === "t-minus" && S.timer && !S.timer.done){ S.timer.end -= 15000; S.timer.total = Math.max(1, S.timer.total - 15); tick(); }
   else if (act === "t-plus" && S.timer && !S.timer.done){ S.timer.end += 15000; S.timer.total += 15; tick(); }
   else if (act === "t-stop" && S.timer){ var o = S.timer; if (o.kind === "rest") stopTimer(); else endWork((Date.now() - o.start)/1000); }

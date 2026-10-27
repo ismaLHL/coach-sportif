@@ -100,6 +100,8 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:.9em;background:var(--su
 .set{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 10px}
 .set.done{background:var(--good-soft);border-color:var(--good)}
 .set.timed,.sets-h.timed{grid-template-columns:28px 1fr 64px 56px}
+.set.go5,.sets-h.go5{grid-template-columns:28px 1fr 1fr 52px 52px}
+.set.ask{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .sn{font-family:var(--f-display);font-weight:700;font-size:20px;color:var(--muted)}
 .fld{display:flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:0 10px;min-width:0}
 .fld input{width:100%;min-width:0;border:0;background:transparent;padding:10px 0;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;outline:none}
@@ -146,4 +148,4 @@ label.lb,.lb{font-weight:700;font-size:14px}
 .sheet.flash{animation:fl .5s 3}
 @keyframes fl{50%{filter:brightness(1.25)}}
 @media (prefers-reduced-motion: reduce){.sheet.flash{animation:none}}
-@media (max-width:380px){h1{font-size:34px}.sh-time{font-size:64px}.set,.sets-h{grid-template-columns:24px 1fr 1fr 50px}}
+@media (max-width:380px){h1{font-size:34px}.sh-time{font-size:64px}.set,.sets-h{grid-template-columns:24px 1fr 1fr 50px}.set.go5,.sets-h.go5{grid-template-columns:24px 1fr 1fr 46px 46px}}
