@@ -1,6 +1,6 @@
 /* Service worker : garde l'app, les polices et les images d'exercices pour le hors-ligne.
    Changer VERSION à chaque mise à jour de l'app. */
-var VERSION = "2026-10-26.3";
+var VERSION = "2026-10-27.1";
 var SHELL = "cs-shell-" + VERSION;
 var IMG = "cs-img-v1";
 var FONTS = "cs-fonts-v1";
@@ -34,11 +34,12 @@ self.addEventListener("fetch", function(e){
     return;
   }
 
-  // Images d'exercices : copie locale d'abord.
-  if (url.hostname === "cdn.jsdelivr.net"){
+  // Images d'exercices (banque libre ou image d'un autre site) : copie locale d'abord.
+  if (url.hostname === "cdn.jsdelivr.net" || req.destination === "image"){
+    var cors = url.hostname === "cdn.jsdelivr.net";
     e.respondWith(caches.open(IMG).then(function(c){
       return c.match(req.url).then(function(hit){
-        return hit || fetch(req.url, { mode:"cors" }).then(function(res){ if (res.ok) c.put(req.url, res.clone()); return res; });
+        return hit || fetch(req.url, { mode: cors ? "cors" : "no-cors" }).then(function(res){ if (res.ok || res.type === "opaque") c.put(req.url, res.clone()); return res; });
       });
     }));
     return;

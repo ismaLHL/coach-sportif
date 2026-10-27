@@ -162,7 +162,8 @@ function precacheImages(){
   Object.keys(S.sessions).forEach(function(id){ if (isDone(id)) return; ((S.sessions[id].data||{}).exercises || []).forEach(function(ex){ imagesOf(ex).forEach(function(u){ if (urls.indexOf(u) < 0) urls.push(u); }); }); });
   return caches.open(IMG_CACHE).then(function(c){ var ok = 0;
     return urls.reduce(function(p, u){ return p.then(function(){ return c.match(u).then(function(hit){ if (hit){ ok++; return; }
-      return fetch(u, { mode:"cors" }).then(function(r){ if (r.ok){ ok++; return c.put(u, r); } }).catch(function(){}); }); }); }, Promise.resolve())
+      var cors = u.indexOf("https://cdn.jsdelivr.net/") === 0;
+      return fetch(u, { mode: cors ? "cors" : "no-cors" }).then(function(r){ if (r.ok || r.type === "opaque"){ ok++; return c.put(u, r); } }).catch(function(){}); }); }); }, Promise.resolve())
     .then(function(){ S.meta.imgs = { ok:ok, n:urls.length, at:new Date().toISOString() }; save(META_KEY, S.meta); precaching = false; if (S.view === "settings") render(); }); })
   .catch(function(){ precaching = false; }); }
 
